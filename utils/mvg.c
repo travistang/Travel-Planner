@@ -1,6 +1,19 @@
 #include "mvg.h"
 typedef ExpandableList String;
 typedef struct curl_slist Header;
+
+/*
+	JSON functions
+*/
+//#define ASSERT_JSON_TYPE(j,t) assert(json_value_get_type(j)==t)
+
+JSON_Value* string_to_json(String* str)
+{
+	return json_parse_string((const char*)(str -> items));
+}
+/*
+	mvg functions
+*/
 String* init_string()
 {
 	return init_list(sizeof(char));
@@ -80,17 +93,131 @@ String* find_closest_station(float lat,float log)
 	char url[maxURLLength];
 	// checking if the search word is too long.
 
-	char* formatURL = "https://www.mvg.de/fahrinfo/api/location/nearby?latitude=%f&longitude=%f";
-	assert(strlen(formatURL) - 2 + strlen(searchWord) <= 1000);
-	snprintf(url,maxURLLength,formatURL,searchWord);
+	char* formatURL = "https://www.mvg.de/fahrinfo/api/location/nearby?latitude=%5f&longitude=%5f";
+	snprintf(url,maxURLLength,formatURL,lat,log);
 
 	get(url,container,header);
 	return container;
 }
+
+void update_station_list()
+{
+	// TODO: fetch station names from list and put it to database
+}
+
+
+// aux. function for checking JSON type
+void assert_type(const JSON_Value *value,enum json_value_type expectedType)
+{
+	if(value == NULL)
+	{
+		printf("value is null!\n");
+		exit(1);
+	}
+	if(json_value_get_type(value) != expectedType)
+	{
+		printf("failed to expect %d",expectedType);
+		exit(1);
+	}
+}
+// aux. function to help cleaning up array of arrays...
+void __cleanList(void* item)
+{
+	free(item);
+}
+char** get_stations(ParseServerOpt* opt,int* size)
+{
+	static const char* emptyQuery = "",
+				* expectResponseSchema = "{\"stations\":[]}";
+	int i,j, numStations,numResults;
+	String* stations = find_station_by_name(emptyQuery);
+	JSON_Value* jsonValue = string_to_json(stations);
+	JSON_Object *response, *station,
+			*expectResponseSchemaJSONObject = json_value_get_object(json_parse_string(expectResponseSchema));
+	JSON_Array* locations;
+	char* name,*place,**results;
+	/*
+		check the integrity of return data
+		it should have the format
+		{
+				"locations": [
+					{
+						...
+						"name": "...",
+						...
+					},
+					...
+				]
+		}
+	*/
+	// parse json value to json object
+
+	assert(jsonValue != NULL);
+	assert_type(jsonValue,JSONObject);
+	response = json_value_get_object(jsonValue);
+
+	// extract location and equivalent...
+	locations = json_object_get_array(response,"locations");
+	assert(locations != NULL);
+	// count number of stations
+	numResults = json_array_get_count(locations);
+	for(i = 0,numStations = 0; i < numResults; i++,numStations++)
+	{
+			station = json_array_get_object(locations,i);
+			if (
+					station == NULL
+				||json_object_get_value(station,"type") == NULL
+				||strcmp(json_object_get_string(station,"type"),"station") != 0)
+			{
+				numStations--;
+				continue;
+			}
+	}
+	// allocate size
+	results = malloc(sizeof(char*) * numStations);
+	assert(results != NULL);
+	// start putting all stations together...
+	for(int i = 0,j = 0; i < numResults; i++,j++)
+	{
+		station = json_array_get_object(locations,i);
+		// add the name of this station
+		if (
+				station == NULL
+			||json_object_get_value(station,"type") == NULL
+			||strcmp(json_object_get_string(station,"type"),"station") != 0)
+		{
+			j--;
+			continue;
+		}
+		name = json_object_get_string(station,"name");
+		place = json_object_get_string(station,"place");
+		assert(place != NULL && name != NULL);
+		int resultLength = strlen(name) + strlen(place) + 3;
+		results[j] = malloc(resultLength);
+		snprintf(results[j],resultLength,"%s, %s",name,place);
+	}
+	// clean up
+	clean_list(stations);
+	json_value_free(jsonValue);
+	json_value_free(expectResponseSchemaJSONObject);
+
+	// prepare and return results
+	*size = numStations;
+	return results;
+}
 int main()
 {
-	String* stations = find_station_by_name("e");
-	//printf("%s",stations -> items);
-	clean_list(stations);
+	int numStations;
+	char** stationList = get_stations(NULL,&numStations);
+	for(int i = 0; i < numStations; i++)
+	{
+		printf("%s\n",stationList[i]);
+	}
+	// clean up
+	for(int i = 0; i < numStations; i++)
+	{
+		free(stationList[i]);
+	}
+	free(stationList);
 	return 0;
 }

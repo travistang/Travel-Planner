@@ -1,9 +1,10 @@
 #include <curl/curl.h>
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include "expandable_list.c"
-#include "external/jsmn/jsmn.h"
+#include "external/parson/parson.h"
 typedef ExpandableList String;
 typedef struct curl_slist Header;
 
@@ -28,4 +29,4 @@ String* find_closest_station(float lat, float log);
 
 // common usage
 // TODO: more functions...
-char** get_stations(ParseServerOpt* opt);
+char** get_stations(ParseServerOpt* opt,int* size);
