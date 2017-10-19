@@ -7,13 +7,10 @@ import (
 	"io/ioutil"
 	"net/http"
 	"encoding/json"
-	"time"
+	"net/url"
+	"strconv"
+//	"time"
 )
-
-
-type Coordinate struct {
-	Latitude,Longitude float64
-}
 
 type Station struct {
 	Type,Place, Name,Aliases string
@@ -23,13 +20,6 @@ type Station struct {
 	Line Lines
 }
 
-type Route struct {
-	StartTime,ArrivalTime time.Time
-	Lines
-	ringFrom,ringTo int
-	fromStation,toStation Station
-	next *Route
-}
 // return parsed json or None
 func request_mvg(url string) ([]byte,error) {
 	// Request (GET https://www.mvg.de/fahrinfo/api/location/queryWeb?q)
@@ -72,8 +62,13 @@ func get_station_results(url string) ([]Station, error){
 	return jsonResponse["locations"],nil
 }
 func search_stations(searchWord string) ([]Station,error) {
+	// construct search string
+	form := url.Values{}
+	form.Add("q",searchWord)
+	searchString := form.Encode()
+	// construct URL
 	url := fmt.Sprintf(
-		"https://www.mvg.de/fahrinfo/api/location/queryWeb?q=%s",searchWord)
+		"https://www.mvg.de/fahrinfo/api/location/queryWeb?%s",searchString)
 	return get_station_results(url)
 }
 
@@ -114,21 +109,49 @@ func departure_from(station Station) ([]Departure,error){
 	}
 	return jsonResponse["departures"],nil
 }
-
+// TODO: take time into consideration
+// TODO: use a struct of request type instead of what we have now...
 func TestMain() {
+	routes, err := GetRoute("Woferlstraße","Alte Heide",10,10)
+	if err != nil {
+		fmt.Println(err)
+	}
+	r := routes[0]
+	fmt.Println(r.NumChange())
+	fmt.Println(r.TotalWaitingTime())
+}
 
-		stations,err := stations_nearby("Hauptbahnhof")
-		if err != nil {
-				fmt.Println(err)
-				return
-		}
-		fmt.Println(stations[0])
-		departures,err := departure_from(stations[0])
+func get_route(fromStation string, toStation string,maxTravelTimeFootwayToStation int, maxTravelTimeFootwayToDestination int) ([]Route,error) {
+	//Retrieve stations
+	fromStationObjs, err := search_stations(fromStation)
+	fromStationObj := fromStationObjs[0]
+	if err != nil {
+		return nil,err
+	}
 
-		if err != nil {
-				fmt.Println(err)
-				return
-		}
-		fmt.Println(departures[0].Departure_time())
-		fmt.Println(departures[0].As_Lines())
+	toStationObjs, err := search_stations(toStation)
+	toStationObj := toStationObjs[0]
+	if err != nil {
+		return nil,err
+	}
+	// then their Ids
+	fromId,toId := fromStationObj.Id,toStationObj.Id
+
+	// construct URL query string
+	params := url.Values{}
+	params.Add("fromStation",strconv.Itoa(fromId))
+	params.Add("toStation",strconv.Itoa(toId))
+	params.Add("maxTravelTimeFootwayToStation",strconv.Itoa(maxTravelTimeFootwayToStation))
+	params.Add("maxTravelTimeFootwayToDestination",strconv.Itoa(maxTravelTimeFootwayToDestination))
+	// then construct the request URLs
+	url := fmt.Sprintf("https://www.mvg.de/fahrinfo/api/routing/?%s",params.Encode())
+	// request and get response
+	jsonString,err := request_mvg(url)
+	// parse the result
+	
+	var jsonResponse map[string][]Route
+	if err = json.Unmarshal(jsonString,&jsonResponse); err != nil {
+		return nil,err
+	}
+	return jsonResponse["connectionList"],nil
 }

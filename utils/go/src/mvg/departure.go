@@ -21,7 +21,6 @@ func (d *Departure) Departure_time() time.Time {
 	return time.Unix(d.DepartureTime / 1000,0)
 }
 
-//TODO: I may not be correct here...
 func (d *Departure) As_Lines() Lines {
 	// var buffer bytes.Buffer
 	line := Lines{}
