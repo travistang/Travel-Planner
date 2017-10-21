@@ -12,14 +12,6 @@ import (
 //	"time"
 )
 
-type Station struct {
-	Type,Place, Name,Aliases string
-	Latitude,Longitude float64
-	Id int
-	Products []string
-	Line Lines
-}
-
 // return parsed json or None
 func request_mvg(url string) ([]byte,error) {
 	// Request (GET https://www.mvg.de/fahrinfo/api/location/queryWeb?q)
@@ -107,12 +99,19 @@ func departure_from(station Station) ([]Departure,error){
 	if err = json.Unmarshal(jsonString,&jsonResponse); err != nil {
 		return nil,err
 	}
+	// Add station to the departures
+	for _,dept := range jsonResponse["departures"] {
+		dept.From = station
+	}
 	return jsonResponse["departures"],nil
 }
-// TODO: take time into consideration
-// TODO: use a struct of request type instead of what we have now...
 func TestMain() {
-	routes, err := GetRoute("Woferlstraße","Alte Heide",10,10)
+	var Params map[string]string
+	Params["fromStation"] = "Woferlstraße"
+	Params["toStation"] = "Alte Heide"
+	Params["maxTravelTimeFootwayToStation"] = strconv.Itoa(10)
+	Params["maxTravelTimeFootwayToDestination"] = strconv.Itoa(10)
+	routes,err := GetRoute(Params)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -121,30 +120,59 @@ func TestMain() {
 	fmt.Println(r.TotalWaitingTime())
 }
 
-func get_route(fromStation string, toStation string,maxTravelTimeFootwayToStation int, maxTravelTimeFootwayToDestination int) ([]Route,error) {
+// TODO: take time into consideration
+// TODO: use a struct of request type instead of what we have now...
+func get_route(params map[string]string) ([]Route,error){
 	//Retrieve stations
-	fromStationObjs, err := search_stations(fromStation)
-	fromStationObj := fromStationObjs[0]
-	if err != nil {
-		return nil,err
-	}
+//	var fromStationObjs,toStationObjs []Station
+//	var fromStationObj,toStationObj []Station
+//	var err error
+//	var fromId,toId int
 
-	toStationObjs, err := search_stations(toStation)
-	toStationObj := toStationObjs[0]
-	if err != nil {
-		return nil,err
+	values := make(url.Values)
+	if fromStation,ok := params["fromStation"] ; ok {
+		// handle fromStation params
+		fromStationObjs, err := search_stations(fromStation)
+		fromStationObj := fromStationObjs[0]
+		fromId := fromStationObj.Id
+		values.Add("fromStation",strconv.Itoa(fromId))
+		if err != nil {
+			return nil,err
+		}
+	} else if lat,ok := params["fromLatitute"]; ok {
+		if lon, ok := params["fromLongitute"]; ok {
+			values.Add("fromLatitute",lat)
+			values.Add("fromLongitute",lon)
+		}
 	}
-	// then their Ids
-	fromId,toId := fromStationObj.Id,toStationObj.Id
+	// same thing for destination...
+	if toStation,ok := params["toStation"] ; ok {
+		// handle toStation params
+		toStationObjs, err := search_stations(toStation)
+		toStationObj := toStationObjs[0]
+		toId := toStationObj.Id
+		values.Add("toStation",strconv.Itoa(toId))
+		if err != nil {
+			return nil,err
+		}
+	} else if lat,ok := params["toLatitute"]; ok {
+		if lon, ok := params["toLongitute"]; ok {
+			values.Add("toLatitute",lat)
+			values.Add("toLongitute",lon)
+		}
+	}
 
 	// construct URL query string
-	params := url.Values{}
-	params.Add("fromStation",strconv.Itoa(fromId))
-	params.Add("toStation",strconv.Itoa(toId))
-	params.Add("maxTravelTimeFootwayToStation",strconv.Itoa(maxTravelTimeFootwayToStation))
-	params.Add("maxTravelTimeFootwayToDestination",strconv.Itoa(maxTravelTimeFootwayToDestination))
+	if maxTravelTimeFootwayToStation, ok := params["maxTravelTimeFootwayToStation"]; ok {
+		values.Add("maxTravelTimeFootwayToStation",maxTravelTimeFootwayToStation)
+	}
+
+	if maxTravelTimeFootwayToDestination, ok := params["maxTravelTimeFootwayToDestination"]; ok {
+		values.Add("maxTravelTimeFootwayToDestination",maxTravelTimeFootwayToDestination)
+	}
+
 	// then construct the request URLs
-	url := fmt.Sprintf("https://www.mvg.de/fahrinfo/api/routing/?%s",params.Encode())
+	url := fmt.Sprintf("https://www.mvg.de/fahrinfo/api/routing/?%s",values.Encode())
 	// request and get response
 	jsonString,err := request_mvg(url)
 	// parse the result

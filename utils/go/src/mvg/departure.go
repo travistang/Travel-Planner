@@ -11,6 +11,7 @@ type Departure struct {
 	DepartureTime int64
 	Product,Destination string
 	Label string
+	From Station
 }
 
 type Lines struct {

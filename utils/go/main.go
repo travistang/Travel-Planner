@@ -1,9 +1,10 @@
 package main
 
 import (
-	"mvg"
+	"api"
 )
 
 func main () {
-	mvg.TestMain()
+	api.TestAPI()
 }
+
