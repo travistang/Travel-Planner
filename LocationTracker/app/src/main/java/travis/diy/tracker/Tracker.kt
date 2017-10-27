@@ -6,62 +6,55 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
-import android.location.LocationProvider
-import kotlinx.websocket.*
-import com.squareup.okhttp.*
-import kotlinx.websocket.gson.withGsonConsumer
-import kotlinx.websocket.gson.withGsonProducer
+import android.os.Bundle
 import rx.Observable
 import rx.Subscriber
-import rx.internal.operators.OperatorToObservableList
-import rx.lang.kotlin.*
 import java.util.*
-import java.util.concurrent.TimeUnit
 
-class Tracker(val serverURL: String,val context: Context,val socketSubscriber: Subscriber<Payload>)
+
+class Tracker(val sensors: Array<Int>, val context: Context,val samplingTime: Int)
 {
-    var locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-    var sensorManager   = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-    var locationObservable = Observable.create(object: Observable.OnSubscribe<Location>
+
+    private var locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    private var sensorManager   = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    var locationObservable = Observable.create(object: Observable.OnSubscribe<GPSReading>
     {
-        override fun call(subscriber: Subscriber<in Location>?)
+        override fun call(t: Subscriber<in GPSReading>?)
         {
-            if(subscriber == null) return
-            if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER))
+            val listener = object: LocationListener
             {
-                subscriber.onError(RuntimeException("GPS provided not enabled"))
-            }
-            while (true)
-            {
-                try
-                {
-                    subscriber.onNext(locationManager
-                            .getLastKnownLocation(LocationManager.GPS_PROVIDER))
-                }catch(e: SecurityException)
-                {
-                    subscriber.onError(e)
+                override fun onLocationChanged(p0: Location?) {
+                    if (p0 != null)
+                        t?.onNext(GPSReading(p0,System.currentTimeMillis()))
+                }
+
+                override fun onStatusChanged(p0: String?, p1: Int, p2: Bundle?) {
+
+                }
+
+                override fun onProviderEnabled(p0: String?) {
+                    t?.onStart()
+                }
+
+                override fun onProviderDisabled(p0: String?) {
+                    t?.onCompleted()
                 }
             }
+            locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER,0,0f,listener)
         }
-    }) as Observable<Location>
-
-    var motionSensorObservable = Sensor.TYPE_MOTION_DETECT.sensorObservable(1000000)
-    var allObservables = Observable.zip(locationObservable,motionSensorObservable, {
-        // zipper
-        location,motion -> Payload(location,motion)
     })
-    var webSocket = OkHttpClient()
-            .newWebSocket(serverURL)
-            .withGsonProducer(allObservables)
-            .withGsonConsumer(socketSubscriber)
-            .open()
+//    var locationObservable = Observable
+//            .interval(samplingTime,
+//                    TimeUnit.MICROSECONDS)
+//            .map({ _ -> this@Tracker.locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)})
+//            .map({ loc -> GPSReading(loc,System.currentTimeMillis())}) //TODO: it's returning null!
+//        private set
 
-    fun closeConnection()
-    {
-        webSocket.close(CloseReason(closeCode = 1 as CloseCode,message = "Requested by client"))
-    }
-    data class SensorReading(val reading: FloatArray,val timestamp: Long) {
+    // data classes
+    abstract class Reading(val timestamp: Long)
+    data class SensorReading(val reading: FloatArray, val time: Long) : Reading(time) {
         override fun equals(other: Any?): Boolean
         {
             if (this === other) return true
@@ -69,13 +62,13 @@ class Tracker(val serverURL: String,val context: Context,val socketSubscriber: S
 
             other as SensorReading
 
-            if (!Arrays.equals(reading, other.reading)) return false
+            if (!Arrays.equals(reading, other.reading) || time != other.time) return false
             return true
         }
     }
+    data class GPSReading(val location: Location, val time:Long) : Reading(time)
 
-    data class Payload(val location: Location, val step: SensorReading)
-
+    // util functions
     fun Int.sensorObservable(samplingTime: Int) : Observable<SensorReading> =
          Observable.create(object : Observable.OnSubscribe<SensorReading>
          {
@@ -91,6 +84,9 @@ class Tracker(val serverURL: String,val context: Context,val socketSubscriber: S
                             if(sensorEvent != null)
                             {
                                 subscriber.onNext(SensorReading(sensorEvent.values,sensorEvent.timestamp))
+                            }else
+                            {
+                                System.out.println("Sensor is giving null")
                             }
                         }
                         override fun onAccuracyChanged(p0: Sensor?, p1: Int){}
@@ -100,9 +96,24 @@ class Tracker(val serverURL: String,val context: Context,val socketSubscriber: S
                      subscriber.onError(e)
                  }finally
                  {
-                     subscriber.onCompleted()
+//                     subscriber.onCompleted()
                  }
              }
 
          })
+
+    // main function
+    fun aggregateSensorValueObservable() : Observable<out Reading>
+    {
+//        return sensors[0].sensorObservable(this@Tracker.samplingTime)
+        // TODO: merge all sensors back again
+        return Observable
+                .merge(sensors
+                    .filter({sensor -> sensorManager    // make sure all the sensor flags are valid
+                        .getSensorList(Sensor.TYPE_ALL)
+                        .contains(sensorManager.getDefaultSensor(sensor))})
+                    .map({sensor -> sensor.sensorObservable(this@Tracker.samplingTime)})
+                )
+    }
+
 }

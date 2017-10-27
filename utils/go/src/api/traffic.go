@@ -55,6 +55,10 @@ func departure_handler(w http.ResponseWriter,request *http.Request) {
 		response: "Missing parameter `station`"}
 	json.NewEncoder(w).Encode(errorResponse.AsMap())
 }
+func route_handler(w http.ResponseWriter,request *http.Request) {
+	// TODO: this
+	
+}
 func TestAPI() {
 	endpoints := []Endpoint{
 		Endpoint{
@@ -63,13 +67,18 @@ func TestAPI() {
 			Method : "GET",
 			Handler: departure_handler},
 
-		// TODO: correct me
 		Endpoint{
 			Endpoint: "/mvg/route",
 			Method: "GET",
-			Handler: departure_handler}}
-
-	RunMVGApi(":12333",endpoints)
+			Handler: route_handler}
+		// TODO: correct me
+		Endpoint{
+			Endpoint: "/sensor",
+			Method: "GET",
+			Handler: route_handler
+		}}
+		
+			RunMVGApi(":12333",endpoints)
 }
 
 func RunMVGApi(port string,endpoints []Endpoint) {
