@@ -40,7 +40,18 @@ open class MessageListAdapter(private val listView: Context,
             return false
         }
     }
-
+    // get an intermediate observables but do not do subscription
+    fun bind(source: Observable<out Tracker.Reading>,activity: Activity): Observable<out Tracker.Reading>
+    {
+        return source.doOnNext{
+            reading ->
+                activity.runOnUiThread {
+                    this@MessageListAdapter.array.add(reading)
+                    this.notifyDataSetChanged()
+                }
+        }.onError{e -> System.out.println(e)}
+    }
+    // get a subscription instead of observables
     fun consume(source: Observable<out Tracker.Reading>,activity: Activity): Subscription?
     {
         return source.subscribe({ reading ->

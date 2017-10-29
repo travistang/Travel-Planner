@@ -12,6 +12,7 @@ import android.os.Bundle
 import rx.Observable
 import rx.Subscriber
 import java.util.*
+import java.util.concurrent.TimeUnit
 
 
 class Tracker(val sensors: Array<Int>, val context: Context,val samplingTime: Int)
@@ -45,12 +46,7 @@ class Tracker(val sensors: Array<Int>, val context: Context,val samplingTime: In
             locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER,0,0f,listener)
         }
     })
-//    var locationObservable = Observable
-//            .interval(samplingTime,
-//                    TimeUnit.MICROSECONDS)
-//            .map({ _ -> this@Tracker.locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)})
-//            .map({ loc -> GPSReading(loc,System.currentTimeMillis())}) //TODO: it's returning null!
-//        private set
+
 
     // data classes
     abstract class Reading(val timestamp: Long)
@@ -76,6 +72,11 @@ class Tracker(val sensors: Array<Int>, val context: Context,val samplingTime: In
              {
                  val tracker = this@Tracker
                  val sensor = tracker.sensorManager.getDefaultSensor(this@sensorObservable) as Sensor
+                 if (sensor == null)
+                 {
+                     subscriber.onError(RuntimeException("Cannot get sensor"))
+                     return
+                 }
                  try
                  {
                     tracker.sensorManager.registerListener(object: SensorEventListener {
@@ -90,7 +91,7 @@ class Tracker(val sensors: Array<Int>, val context: Context,val samplingTime: In
                             }
                         }
                         override fun onAccuracyChanged(p0: Sensor?, p1: Int){}
-                    },sensor,samplingTime)
+                    },sensor,10000000)
                  }catch(e: Exception)
                  {
                      subscriber.onError(e)
@@ -101,6 +102,7 @@ class Tracker(val sensors: Array<Int>, val context: Context,val samplingTime: In
              }
 
          })
+                 .throttleFirst(samplingTime.toLong(),TimeUnit.MICROSECONDS)
 
     // main function
     fun aggregateSensorValueObservable() : Observable<out Reading>

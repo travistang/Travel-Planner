@@ -8,85 +8,101 @@ import okio.ByteString
 import rx.Scheduler
 import rx.Subscription
 import rx.schedulers.Schedulers
+import travis.diy.RxComponent.RxComponent
 import java.util.*
 
 /**
  * Created by travistang on 24/10/2017.
  */
 
-class RxWebSocket(val url: HttpUrl)
+class RxWebSocket<T,U>(val url: HttpUrl
+                       ,val byteToOutFunc: (ByteString) -> U
+                       ,val InToByteFunc: (T) -> ByteString
+                       ,override val inputSource: Observable<T>)
+    :RxComponent<T,U>()
 {
     private val client = OkHttpClient()
     private val request = Request.Builder().url(url).build()
+    private val subscriptionList = ArrayList<Subscription>()
+    private var inputSourceSubscription: Subscription? =
+            inputSource
+            .map{input -> InToByteFunc(input)}
+            .subscribe{bs -> send(bs)}
+    private lateinit var listener: WebSocketListener
 
-    private var hasSubscriber = false
-
-    val messageObservable = Observable.create(object: Observable.OnSubscribe<ByteString>
+    fun subscribe(s: Subscriber<U>): Subscription
     {
-        override fun call(t: Subscriber<in ByteString>?)
+        val sub = this.outputSource.subscribe(s)
+        subscriptionList.add(sub)
+        // TODO: restart socket if not started
+        if (socket == null) openConnection()
+        return sub
+    }
+
+    fun unsubscribe(s: Subscription)
+    {
+        if (subscriptionList.find { sl -> sl === s } != null)
         {
-            val listener = object: WebSocketListener()
+            subscriptionList.remove(s)
+            s.unsubscribe()
+        }
+        if (isSocketIdling()) closeConnection()
+    }
+
+    override val outputSource = Observable.create(object: Observable.OnSubscribe<U>
+    {
+        override fun call(t: Subscriber<in U>?)
+        {
+            listener = object: WebSocketListener()
             {
                 override fun onMessage(webSocket: okhttp3.WebSocket?, bytes: ByteString?) {
-                    t?.onNext(bytes)
+                    if (bytes != null)
+                        t?.onNext(byteToOutFunc(bytes))
                 }
 
                 override fun onMessage(webSocket: okhttp3.WebSocket?, text: String?) {
-                    t?.onNext(ByteString.encodeUtf8(text))
+                    if (text != null)
+                        t?.onNext(byteToOutFunc(ByteString.encodeUtf8(text)))
                 }
 
                 override fun onClosed(webSocket: okhttp3.WebSocket?, code: Int, reason: String?) {
                     t?.onCompleted()
-                    hasSubscriber = false
                 }
 
                 override fun onOpen(webSocket: okhttp3.WebSocket?, response: Response?) {
                     t?.onStart()
-                    hasSubscriber = true
                 }
             }
-            openConnection(listener)
+            openConnection()
         }
     })
+
 
     private var socket: okhttp3.WebSocket? = null
 
     /*
           general methods
      */
-    fun send(data: ByteString)
+    // still give this because some people who dont use RxKotlin
+    fun send(bs: ByteString) = socket?.send(bs)
+
+
+
+    fun isSocketIdling(): Boolean
     {
-        socket?.send(data)
+        return subscriptionList.isEmpty()
     }
 
-    fun subscribeMessage(subscriber: Subscriber<in ByteString>): Subscription?
-    {
-        if(hasSubscriber) return null
-        return messageObservable
-                .subscribeOn(Schedulers.io())
-                .subscribe(subscriber)
-    }
-
-    fun <T> subscribeWithMap(subscriber: Subscriber<in T>, mapper: (ByteString) -> T): Subscription?
-    {
-        if(hasSubscriber) return null
-        return messageObservable
-                .map({m -> mapper(m)})
-                .subscribeOn(Schedulers.io())
-                .subscribe(subscriber)
-    }
-
-    fun closeConnection(subscription: Subscription)
+    fun closeConnection()
     {
         socket?.close(1000,null)
         socket = null
-        subscription.unsubscribe()
     }
 
-    private fun openConnection(listener: WebSocketListener)
+    private fun openConnection()
     {
-        if(socket == null)
-            socket = client.newWebSocket(request,listener)
+        if(socket == null) {
+            socket = client.newWebSocket(request, listener)
+        }
     }
-
 }
