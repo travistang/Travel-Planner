@@ -1,0 +1,59 @@
+version: '2'
+services:
+  # mongo stack
+  mongo-data:
+    image: mongo
+    volumes:
+        - /data/db
+    command: "--break-mongo" # ok...
+  mongo:
+    image: mongo:3.0.8
+    ports:
+        - "27017:27017"
+    volumes_from:
+        - mongo-data
+
+  # parse stack
+  parse-server:
+    image: yongjhih/parse-server
+    environment:
+        APP_ID: $APP_NAME
+        MASTER_KEY: $MASTER_KEY
+        REST_API_KEY: $REST_API_KEY
+        ALLOW_CLIENT_CLASS_CREATION: 1
+        APP_NAME: travel-planner
+        SERVER_URL: $SERVER_URL
+
+    links:
+        - mongo
+    volumes_from:
+        - parse-cloud-code
+    volumes:
+        - /parse/cloud
+        - "./columes/certs:/certs"
+    ports:
+        - "33333:1337"
+  parse-cloud-code:
+    image: yongjhih/parse-cloud-code
+    volumes:
+        - /parse/cloud
+    command: "ls /parse/cloud"
+
+  parse-dashboard:
+    image: yongjhih/parse-dashboard:1.0.18
+    #image: yongjhih/parse-dashboard
+    links:
+      - parse-server
+    environment:
+      APP_NAME: $APP_NAME
+      APP_ID: $APP_NAME
+      ALLOW_INSECURE_HTTP: 1
+      USER1: $USER1
+      USER1_PASSWORD: $USER1_PASSWORD
+      PARSE_DASHBOARD_ALLOW_INSECURE_HTTP: 1
+      PARSE_DASHBOARD_USER_ID: $USER1
+      PARSE_DASHBOARD_USER_PASSWORD: $USER1_PASSWORD
+      SERVER_URL: $SERVER_URL
+
+    ports:
+      - "4040:4040"
